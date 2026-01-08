@@ -1,0 +1,9 @@
+# MacOS
+.DS_Store
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# Binaries
+dist
