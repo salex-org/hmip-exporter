@@ -53,22 +53,37 @@ func NewHomematicClient() (HomematicClient, error) {
 		return nil, fmt.Errorf("could not get HomematicIP client: %s", err)
 	}
 
-	// TODO Register event handler
-
-	// Load initial data
-	state, err := newClient.hmipClient.LoadCurrentState()
-	if err != nil {
-		return nil, fmt.Errorf("could not load HomematicIP state: %s", err)
-	}
-	for _, each := range state.GetDevices() {
-		newClient.updateMetric(each)
-	}
+	// Register event handler
+	newClient.hmipClient.RegisterEventHandler(func(baseEvent hmip.Event, _ hmip.Origin) {
+		switch event := baseEvent.(type) {
+		case hmip.DeviceChangedEvent:
+			newClient.updateMetric(event.GetDevice())
+		}
+	}, hmip.EVENT_TYPE_DEVICE_CHANGED, hmip.EVENT_TYPE_GROUP_CHANGED)
 
 	return newClient, nil
 }
 
 func (h *homemeticClient) Start() error {
-	// TODO implement event listening
+	// Load initial data
+	state, err := h.hmipClient.LoadCurrentState()
+	if err == nil {
+		fmt.Println("Loading initial state succeeded")
+		for _, each := range state.GetDevices() {
+			h.updateMetric(each)
+		}
+	} else {
+		h.processingError = fmt.Errorf("could not load initial state: %s", err)
+		return h.processingError
+	}
+
+	// Start the event listening
+	err = h.hmipClient.ListenForEvents()
+	if err != nil {
+		h.processingError = fmt.Errorf("could not start event listening: %s", err)
+		return h.processingError
+	}
+
 	return nil
 }
 
