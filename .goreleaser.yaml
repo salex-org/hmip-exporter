@@ -1,0 +1,53 @@
+version: 2
+project_name: hmip-exporter
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hmip-exporter
+    main: cmd/main.go
+    binary: exporter
+    ldflags:
+      - -s -w
+      - -X github.com/salex-org/hmip-exporter/internal/util.Version={{ .Version }}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+
+dockers_v2:
+  - images:
+      - ghcr.io/salex-org/hmip-exporter
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+      - linux/arm/v7
+
+archives:
+  - formats: [ 'tar.gz' ]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: salex-org
+    name: hmip-exporter
+  draft: false
+  prerelease: false
+
+snapshot:
+  version_template: "v{{ incpatch .Version }}-snapshot"
