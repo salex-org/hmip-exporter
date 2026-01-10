@@ -18,6 +18,7 @@ type homemeticClient struct {
 	hmipClient        hmip.Homematic
 	baseMetrics       homematicMetric
 	additionalMetrics map[string]homematicMetric // key: device type
+	metaGroups        map[string]hmip.Group      // key: group id
 	processingError   error
 }
 
@@ -40,6 +41,7 @@ func NewHomematicClient() (HomematicClient, error) {
 	switchMetric := newSwitchMetric()
 	newClient := &homemeticClient{
 		baseMetrics: newBaseHomematicMetric(),
+		metaGroups:  make(map[string]hmip.Group),
 		additionalMetrics: map[string]homematicMetric{
 			"REMOTE_CONTROL_8": newRemoteControlMetric(),
 			hmip.DEVICE_TYPE_TEMPERATURE_HUMIDITY_SENSOR_OUTDOOR: newClimateSensorMetric(),
@@ -58,6 +60,8 @@ func NewHomematicClient() (HomematicClient, error) {
 		switch event := baseEvent.(type) {
 		case hmip.DeviceChangedEvent:
 			newClient.updateMetric(event.GetDevice())
+		case hmip.GroupChangedEvent:
+			newClient.updateMetaGroup(event.GetGroup())
 		}
 	}, hmip.EVENT_TYPE_DEVICE_CHANGED, hmip.EVENT_TYPE_GROUP_CHANGED)
 
@@ -69,6 +73,9 @@ func (h *homemeticClient) Start() error {
 	state, err := h.hmipClient.LoadCurrentState()
 	if err == nil {
 		fmt.Println("Loading initial state succeeded")
+		for _, each := range state.GetGroups() {
+			h.updateMetaGroup(each)
+		}
 		for _, each := range state.GetDevices() {
 			h.updateMetric(each)
 		}
@@ -113,15 +120,44 @@ func (h *homemeticClient) updateMetric(device hmip.Device) {
 	fmt.Printf("Warning: No metric registered for %s\n", device.GetType())
 }
 
-// TODO add room information to labels
-
-var metricLabelNames = []string{"device_id", "device_name", "device_type", "device_model"}
+var metricLabelNames = []string{"device_id", "device_name", "device_type", "device_model", "room_id", "room_name"}
 
 func (h *homemeticClient) createLabels(device hmip.Device) prometheus.Labels {
+	var roomID = ""
+	var roomName = ""
+	for _, base := range device.GetFunctionalChannelsByType(hmip.CHANNEL_TYPE_DEVICE_BASE) {
+		switch channel := base.(type) {
+		case hmip.BaseDeviceChannel:
+			metaGroup := h.getMetaGroupFromChannel(channel)
+			if metaGroup != nil {
+				roomID = metaGroup.GetID()
+				roomName = metaGroup.GetName()
+			}
+		}
+	}
+
 	return prometheus.Labels{
 		"device_id":    device.GetID(),
 		"device_name":  device.GetName(),
 		"device_type":  device.GetType(),
 		"device_model": device.GetModel(),
+		"room_id":      roomID,
+		"room_name":    roomName,
+	}
+}
+
+func (h *homemeticClient) getMetaGroupFromChannel(channel hmip.BaseDeviceChannel) hmip.Group {
+	for _, groupID := range channel.GetGroups() {
+		if group, hasGroup := h.metaGroups[groupID]; hasGroup {
+			return group
+		}
+	}
+
+	return nil
+}
+
+func (h *homemeticClient) updateMetaGroup(group hmip.Group) {
+	if group.GetType() == hmip.GROUP_TYPE_META {
+		h.metaGroups[group.GetID()] = group
 	}
 }
